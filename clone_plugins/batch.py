@@ -1,49 +1,73 @@
 from pyrogram import Client, filters
+from pyrogram.types import Message
+import random
+import string
+
+BATCH_DB = {}
+
+
+def generate_key():
+    return ''.join(random.choices(string.ascii_letters + string.digits, k=8))
 
 
 @Client.on_message(filters.command("batch") & filters.private)
-async def batch_handler(client, message):
+async def batch_start(client: Client, message: Message):
 
     await message.reply(
-        "📦 Send multiple files one by one.\n"
-        "When finished, send /done to generate batch link."
+        "Send the **first post link** from the channel."
     )
 
-
-@Client.on_message(filters.private & filters.document)
-async def collect_files(client, message):
-
-    if not hasattr(client, "batch_files"):
-        client.batch_files = {}
-
-    user_id = message.from_user.id
-
-    if user_id not in client.batch_files:
-        client.batch_files[user_id] = []
-
-    client.batch_files[user_id].append(message.document.file_id)
-
-    await message.reply("✅ File added to batch.")
+    client.batch_step = {}
+    client.batch_step[message.from_user.id] = "FIRST"
 
 
-@Client.on_message(filters.command("done") & filters.private)
-async def finish_batch(client, message):
+@Client.on_message(filters.private & filters.text)
+async def batch_handler(client: Client, message: Message):
+
+    if not hasattr(client, "batch_step"):
+        return
 
     user_id = message.from_user.id
 
-    if not hasattr(client, "batch_files") or user_id not in client.batch_files:
-        return await message.reply("❌ No batch files found.")
+    if user_id not in client.batch_step:
+        return
 
-    files = client.batch_files[user_id]
+    step = client.batch_step[user_id]
 
-    links = []
+    if step == "FIRST":
 
-    for file in files:
-        link = f"https://t.me/{client.username}?start={file}"
-        links.append(link)
+        try:
+            first = int(message.text.split("/")[-1])
+        except:
+            return await message.reply("Invalid link. Send again.")
 
-    text = "📦 Batch Links:\n\n" + "\n".join(links)
+        client.batch_first = first
+        client.batch_step[user_id] = "LAST"
 
-    await message.reply(text)
+        return await message.reply(
+            "Now send the **last post link**."
+        )
 
-    del client.batch_files[user_id]
+    if step == "LAST":
+
+        try:
+            last = int(message.text.split("/")[-1])
+        except:
+            return await message.reply("Invalid link.")
+
+        first = client.batch_first
+
+        if last < first:
+            return await message.reply("Last link must be greater.")
+
+        key = generate_key()
+
+        BATCH_DB[key] = (first, last)
+
+        link = f"https://t.me/{client.username}?start=batch_{key}"
+
+        del client.batch_step[user_id]
+
+        await message.reply(
+            f"📦 Batch Link Generated:\n\n{link}"
+        )
