@@ -10,7 +10,7 @@ TOKEN_PATTERN = r"\d{8,10}:[a-zA-Z0-9_-]{35}"
 MAX_CLONES = 200
 
 
-@Client.on_message(filters.command("clone") & filters.private)
+@Client.on_message(filters.private & filters.regex(TOKEN_PATTERN))
 async def clone_command(client, message):
 
     user_id = message.from_user.id
