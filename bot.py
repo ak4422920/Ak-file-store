@@ -13,13 +13,15 @@ from database.database import *
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import logging
 
-# Suppress APScheduler logs below WARNING level
+# clone system imports
+from clone_system.clone_db import get_all_clones
+from clone_manager import start_clone
+
 logging.getLogger("apscheduler").setLevel(logging.WARNING)
 
 scheduler = AsyncIOScheduler(timezone="Asia/Kolkata")
 scheduler.add_job(remove_expired_users, "interval", seconds=10)
 
-# Reset verify count for all users daily at 00:00 IST
 async def daily_reset_task():
     try:
         await db.reset_all_verify_counts()
@@ -30,18 +32,6 @@ scheduler.add_job(daily_reset_task, "cron", hour=0, minute=0)
 
 
 def get_indian_time():
-    """Returns the current time in IST."""
-    ist = pytz.timezone("Asia/Kolkata")
-    return datetime.now(ist)
-
-
-name = """
- BOT SYSTEM
-"""
-
-
-def get_indian_time():
-    """Returns the current time in IST."""
     ist = pytz.timezone("Asia/Kolkata")
     return datetime.now(ist)
 
@@ -52,9 +42,7 @@ class Bot(Client):
             name="Bot",
             api_hash=API_HASH,
             api_id=APP_ID,
-            plugins={
-                "root": "plugins"
-            },
+            plugins={"root": "plugins"},
             workers=TG_BOT_WORKERS,
             bot_token=TG_BOT_TOKEN
         )
@@ -63,8 +51,20 @@ class Bot(Client):
     async def start(self):
         await super().start()
         scheduler.start()
+
         usr_bot_me = await self.get_me()
         self.uptime = get_indian_time()
+
+        # Load clone bots from database
+        try:
+            clones = await get_all_clones()
+            for clone in clones:
+                try:
+                    await start_clone(clone["token"], clone["user_id"])
+                except:
+                    pass
+        except:
+            pass
 
         try:
             db_channel = await self.get_chat(CHANNEL_ID)
@@ -74,16 +74,13 @@ class Bot(Client):
         except Exception as e:
             self.LOGGER(__name__).warning(e)
             self.LOGGER(__name__).warning(
-                f"Make Sure bot is Admin in DB Channel, and Double check the CHANNEL_ID Value, Current Value {CHANNEL_ID}"
+                f"Make Sure bot is Admin in DB Channel, Check CHANNEL_ID Value {CHANNEL_ID}"
             )
-            self.LOGGER(__name__).info("\nBot Stopped.")
             sys.exit()
 
         self.set_parse_mode(ParseMode.HTML)
-        self.LOGGER(__name__).info("Bot Running..!")
 
-        self.LOGGER(__name__).info(f"""
-        
+        self.LOGGER(__name__).info("""
         
   ___ ___  ___  ___ ___ _    _____  _____  ___ _____ ___ 
  / __/ _ \|   \| __| __| |  |_ _\ \/ / _ )/ _ \_   _/ __|
@@ -92,17 +89,18 @@ class Bot(Client):
                                                          
         """)
 
-        self.set_parse_mode(ParseMode.HTML)
         self.username = usr_bot_me.username
         self.LOGGER(__name__).info("Bot Running Successfully")
 
-        # Start Web Server
         app = web.AppRunner(await web_server())
         await app.setup()
         await web.TCPSite(app, "0.0.0.0", PORT).start()
 
         try:
-            await self.send_message(OWNER_ID, text="<b><blockquote>Bot Restarted Successfully</blockquote></b>")
+            await self.send_message(
+                OWNER_ID,
+                "<b><blockquote>Bot Restarted Successfully</blockquote></b>"
+            )
         except:
             pass
 
@@ -111,7 +109,6 @@ class Bot(Client):
         self.LOGGER(__name__).info("Bot stopped.")
 
     def run(self):
-        """Run the bot."""
         loop = asyncio.get_event_loop()
         loop.run_until_complete(self.start())
         self.LOGGER(__name__).info("Bot is now running.")
